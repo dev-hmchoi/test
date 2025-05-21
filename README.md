@@ -1,12 +1,132 @@
+
+BEGIN TRY
+    BEGIN TRAN;
+
+    -- 임시 테이블 생성
+    CREATE TABLE #TempResult (
+        Id INT,
+        Name NVARCHAR(100),
+        Status NVARCHAR(20),
+        Amount DECIMAL(18, 2),
+        CreatedDate DATETIME
+    );
+
+    -- 파라미터 선언
+    DECLARE 
+        @Status NVARCHAR(20) = 'ACTIVE',
+        @MinAmount DECIMAL(18, 2) = 1000.00,
+        @StartDate DATE = '2024-01-01',
+        @SQL NVARCHAR(MAX);
+
+    -- 동적 SQL (파라미터 바인딩 방식)
+    SET @SQL = N'
+        SELECT 
+            Id,
+            Name,
+            Status,
+            Amount,
+            CreatedDate
+        FROM RemoteDB.dbo.Orders
+        WHERE Status = @P_Status
+          AND Amount >= @P_MinAmount
+          AND CreatedDate >= @P_StartDate
+    ';
+
+    -- 결과 삽입
+    INSERT INTO #TempResult (Id, Name, Status, Amount, CreatedDate)
+    EXEC sp_executesql 
+        @SQL,
+        N'@P_Status NVARCHAR(20), @P_MinAmount DECIMAL(18,2), @P_StartDate DATE',
+        @P_Status = @Status,
+        @P_MinAmount = @MinAmount,
+        @P_StartDate = @StartDate
+    AT [RemoteServer];
+
+    -- 결과 사용
+    SELECT * FROM #TempResult;
+
+    -- 커밋
+    COMMIT;
+END TRY
+BEGIN CATCH
+    PRINT '에러 발생: ' + ERROR_MESSAGE();
+    IF @@TRANCOUNT > 0
+        ROLLBACK;
+END CATCH;
+
+-- 임시 테이블 정리
+IF OBJECT_ID('tempdb..#TempResult') IS NOT NULL
+    DROP TABLE #TempResult;
+
+
+
+
+
+
+BEGIN TRY
+    BEGIN TRAN;
+
+    -- 임시 테이블 생성 (결과에 맞게 컬럼 정의)
+    CREATE TABLE #TempResult (
+        Id INT,
+        Name NVARCHAR(100),
+        Status NVARCHAR(20),
+        Amount DECIMAL(18, 2),
+        CreatedDate DATETIME
+    );
+
+    -- 조건 정의 (예: 문자열, 숫자, 일자 포함)
+    DECLARE 
+        @Status NVARCHAR(20) = 'ACTIVE',
+        @MinAmount DECIMAL(18, 2) = 1000.00,
+        @StartDate DATE = '2024-01-01',
+        @SQL NVARCHAR(MAX);
+
+    -- 동적 SQL 생성
+    SET @SQL = N'
+        SELECT 
+            Id,
+            Name,
+            Status,
+            Amount,
+            CreatedDate
+        FROM RemoteDB.dbo.Orders
+        WHERE Status = ''' + @Status + ''' 
+          AND Amount >= ' + CAST(@MinAmount AS NVARCHAR) + '
+          AND CreatedDate >= ''' + CONVERT(NVARCHAR, @StartDate, 120) + '''';
+
+    -- 결과 삽입
+    INSERT INTO #TempResult (Id, Name, Status, Amount, CreatedDate)
+    EXEC (@SQL) AT [RemoteServer];
+
+    -- 결과 사용 예시
+    SELECT * FROM #TempResult;
+
+    -- 성공 시 커밋
+    COMMIT;
+
+END TRY
+BEGIN CATCH
+    -- 오류 정보 출력
+    PRINT '에러 발생: ' + ERROR_MESSAGE();
+
+    -- 롤백
+    IF @@TRANCOUNT > 0
+        ROLLBACK;
+
+END CATCH
+
+-- 임시 테이블 정리
+IF OBJECT_ID('tempdb..#TempResult') IS NOT NULL
+    DROP TABLE #TempResult;
+
+
+
+
 -- 기존 임시 테이블 제거 및 재생성
 IF OBJECT_ID('tempdb..#ToArchive') IS NOT NULL DROP TABLE #ToArchive;
 
-CREATE TABLE #ToArchive (
-    emp_id INT,
-    emp_name NVARCHAR(100),
-    dept_id INT,
-    hire_date DATE
-);
+    hire_date 
 
 -- Oracle 쿼리 및 OPENQUERY 실행용 쿼리 구성
 DECLARE @remote_select_sql NVARCHAR(MAX);
