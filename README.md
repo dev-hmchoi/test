@@ -1,3 +1,190 @@
+네, 제공해주신 SQL Server 프로시저 템플릿을 보다 안정적이고 효율적으로 개선하는 방법을 제안해 드립니다. 현재 코드의 좋은 부분은 유지하되, 성능을 저해할 수 있는 요소들을 제거하고, 더 나은 예외 처리 및 로깅 방식을 추가했습니다.
+개선된 SQL Server 프로시저 템플릿
+아래는 개선된 프로시저 코드입니다. 각 개선 사항에 대한 자세한 설명은 코드 다음에 이어집니다.
+CREATE PROCEDURE dbo.YourProcedureName
+    @InputParam1 INT = 0,
+    @InputParam2 NVARCHAR(100),
+    @OutputParam1 INT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON; -- 트랜잭션 내에서 런타임 오류 발생 시 자동 롤백
+
+    -- ▒▒ 변수 선언 ▒▒
+    DECLARE @LocalVar1 INT;
+    DECLARE @LocalVar2 INT = 100;
+    DECLARE @SumResult INT;
+    DECLARE @ErrorMessage NVARCHAR(4000);
+    DECLARE @ErrorSeverity INT;
+    DECLARE @ErrorState INT;
+    DECLARE @IsSuccess BIT = 1;
+
+    -- ▒▒ 초기 값 설정 및 유효성 검사 (필요 시) ▒▒
+    SET @LocalVar1 = @InputParam1 * 10;
+
+    -- @InputParam2가 NULL이거나 빈 문자열인 경우 처리
+    IF @InputParam2 IS NULL OR @InputParam2 = ''
+    BEGIN
+        SET @OutputParam1 = -1;
+        -- 좀 더 상세한 오류 메시지 또는 로깅
+        RAISERROR(N'InputParam2는 NULL이거나 빈 문자열일 수 없습니다.', 16, 1);
+        RETURN -1;
+    END
+
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        SET @SumResult = @LocalVar1 + @LocalVar2;
+
+        -- ▒▒ Step 1. 임시 테이블 생성 및 데이터 로딩 (ROW_NUMBER 포함) ▒▒
+        -- IF OBJECT_ID('tempdb..#TargetList') IS NOT NULL DROP TABLE #TargetList; -- 불필요, WITH 절 사용 시
+        -- CTE 또는 테이블 변수를 사용하여 임시 테이블 사용 최소화
+        -- 또는 필요한 경우 #TargetList를 프로시저 시작 전에 확실히 DROP하고 CREATE
+
+        -- 대량의 데이터를 처리해야 한다면 #TargetList를 생성하는 것이 유리
+        IF OBJECT_ID('tempdb..#TargetList') IS NOT NULL DROP TABLE #TargetList;
+        SELECT
+            ROW_NUMBER() OVER (ORDER BY SomeColumn) AS RowNum,
+            SomeColumn
+        INTO #TargetList
+        FROM YourTable
+        WHERE SomeCondition = @InputParam2;
+
+        -- ▒▒ Step 2. 데이터 유무 확인 및 처리 ▒▒
+        IF NOT EXISTS (SELECT 1 FROM #TargetList)
+        BEGIN
+            PRINT N'처리할 데이터가 없습니다.';
+            SET @OutputParam1 = 0;
+            COMMIT TRANSACTION; -- 처리할 데이터가 없으므로 트랜잭션 커밋
+            RETURN 0;
+        END
+
+        -- ▒▒ Step 3. 커서 대신 Set-based 또는 WHILE 루프 최적화 ▒▒
+        -- 일반적으로 커서는 성능 저하의 주범입니다. 가능하면 Set-based(집합 기반) 연산으로 대체하세요.
+        -- 예: UPDATE YourTable SET Column = NewValue WHERE SomeColumn IN (SELECT SomeColumn FROM #TargetList);
+
+        -- 만약 루프가 불가피하다면, 최적화된 WHILE 루프나 APPLY 연산을 고려하세요.
+        -- 이 템플릿에서는 기존 WHILE 루프를 유지하되, 잠재적 문제점을 설명합니다.
+        DECLARE @CursorRowNum INT = 1;
+        DECLARE @TotalRowCount INT = (SELECT COUNT(*) FROM #TargetList);
+        DECLARE @CurrentSomeColumn NVARCHAR(100); -- 현재 처리할 SomeColumn 값
+
+        WHILE @CursorRowNum <= @TotalRowCount
+        BEGIN
+            SELECT @CurrentSomeColumn = SomeColumn
+            FROM #TargetList
+            WHERE RowNum = @CursorRowNum;
+
+            -- NULL 데이터 체크는 WHERE 절에서 필터링하는 것이 더 효율적일 수 있습니다.
+            -- 또는 서브 프로시저에서 NULL 허용 여부를 명확히 하는 것이 좋습니다.
+            IF @CurrentSomeColumn IS NULL
+            BEGIN
+                -- 오류 처리 대신 경고 또는 로깅 후 계속 진행할지 결정해야 합니다.
+                -- 여기서는 심각한 오류로 간주하고 중단합니다.
+                SET @IsSuccess = 0;
+                RAISERROR(N'#TargetList에 NULL 데이터가 발견되었습니다. 처리 중단.', 16, 1);
+                BREAK; -- 루프 중단
+            END
+
+            -- ★ 서브 프로시저 호출 (예시) ★
+            -- 서브 프로시저가 트랜잭션을 자체적으로 처리하는 경우, 외부 트랜잭션과 충돌할 수 있으니 주의
+            EXEC dbo.YourSubProcedure
+                @Param1 = @CurrentSomeColumn,
+                @Param2 = @InputParam1;
+
+            -- 진행률 출력은 개발/디버깅용으로만 사용하고, 프로덕션에서는 성능에 영향을 줄 수 있으므로 제거 고려
+            PRINT N'진행률: ' + CAST(@CursorRowNum AS NVARCHAR(20)) + N' / ' + CAST(@TotalRowCount AS NVARCHAR(20));
+
+            SET @CursorRowNum += 1;
+
+            -- 비정상적인 루프 횟수 체크는 유효하지만, 보통 데이터 유효성 검사 또는 로직 문제 해결이 우선
+            IF @CursorRowNum > 100000 -- 적절한 최대 루프 횟수 설정
+            BEGIN
+                SET @IsSuccess = 0;
+                RAISERROR(N'루프 횟수가 비정상적으로 많습니다. 처리 중단합니다.', 16, 1);
+                BREAK;
+            END
+        END
+
+        -- ▒▒ Step 4. 성공 여부에 따른 트랜잭션 처리 ▒▒
+        IF @IsSuccess = 1
+        BEGIN
+            COMMIT TRANSACTION;
+            SET @OutputParam1 = @SumResult;
+        END
+        ELSE
+        BEGIN
+            -- @IsSuccess가 0이면 이미 RAISERROR로 CATCH 블록으로 이동했거나,
+            -- 트랜잭션이 아직 열려있을 경우에만 ROLLBACK 처리
+            IF XACT_STATE() <> 0
+                ROLLBACK TRANSACTION;
+            SET @OutputParam1 = -1;
+            -- 이미 RAISERROR로 오류를 발생시켰으므로 여기서는 추가 RETURN -1만 합니다.
+            RETURN -1;
+        END
+
+    END TRY
+    BEGIN CATCH
+        -- 오류 발생 시 트랜잭션 롤백
+        IF XACT_STATE() <> 0
+            ROLLBACK TRANSACTION;
+
+        SELECT
+            @ErrorMessage = ERROR_MESSAGE(),
+            @ErrorSeverity = ERROR_SEVERITY(),
+            @ErrorState = ERROR_STATE();
+
+        -- 오류 로깅 (예: 오류 테이블에 삽입)
+        -- INSERT INTO ErrorLogTable (ProcedureName, ErrorCode, ErrorMessage, ErrorSeverity, ErrorState, LogDate)
+        -- VALUES (OBJECT_NAME(@@PROCID), ERROR_NUMBER(), @ErrorMessage, @ErrorSeverity, @ErrorState, GETDATE());
+
+        -- 클라이언트에게 오류 메시지 전달 (선택 사항)
+        RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
+
+        SET @OutputParam1 = -1;
+        RETURN -1; -- 오류 발생 시 -1 반환
+    END CATCH
+
+    -- ▒▒ Step 5. 임시 테이블 정리 ▒▒
+    IF OBJECT_ID('tempdb..#TargetList') IS NOT NULL
+        DROP TABLE #TargetList;
+
+    -- ▒▒ Step 6. 리턴 코드 ▒▒
+    RETURN 0; -- 성공 시 0 반환
+END;
+GO
+
+주요 개선 사항 및 설명
+1. SET XACT_ABORT ON; 추가
+ * 목적: 트랜잭션 내에서 런타임 오류(예: 제약 조건 위반)가 발생할 경우, SQL Server가 자동으로 현재 트랜잭션을 롤백하고 프로시저 실행을 중단하게 합니다. 이는 트랜잭션의 일관성을 보장하고, CATCH 블록에서 XACT_STATE()를 확인하는 번거로움을 줄여줍니다.
+2. 초기 파라미터 유효성 검사
+ * @InputParam2와 같이 필수적인 입력 파라미터에 대해 NULL 또는 빈 문자열 체크를 추가했습니다. 프로시저 실행 초기에 문제를 감지하여 불필요한 연산을 방지합니다.
+ * RAISERROR를 사용하여 명확한 오류 메시지를 발생시키고 프로시저를 즉시 종료합니다.
+3. PRINT 문구 개선
+ * PRINT 문구에 N 접두사를 사용하여 유니코드 문자열임을 명시했습니다. (예: PRINT N'처리할 데이터가 없습니다.';)
+ * CAST(@CursorRowNum AS NVARCHAR) 대신 CAST(@CursorRowNum AS NVARCHAR(20))처럼 명시적인 길이를 지정하는 것이 좋습니다.
+4. WHILE 루프 최적화 및 CURSOR 대안 (Set-based Operation)
+ * 가장 중요한 개선 사항입니다. SQL Server에서 WHILE 루프 (특히 ROW_NUMBER를 기반으로 한 루프)는 **커서(Cursor)**와 유사하게 동작하며, 대량의 데이터를 처리할 때 심각한 성능 저하를 일으킬 수 있습니다.
+ * 권장 사항:
+   * 가능한 한 Set-based (집합 기반) 연산으로 로직을 변경하세요. 즉, UPDATE, INSERT, DELETE 문에 JOIN, WHERE, CTE 등을 활용하여 한 번의 쿼리로 여러 행을 처리하는 방식입니다.
+   * 예를 들어, dbo.YourSubProcedure에서 수행하는 작업이 여러 행에 대해 동일한 로직을 적용하는 것이라면, 이를 한 번의 UPDATE 또는 INSERT...SELECT 문으로 대체하는 것을 적극적으로 고려해야 합니다.
+ * 루프가 불가피한 경우:
+   * 루프 내에서 매번 SELECT @CursorValue = SomeColumn FROM #TargetList WHERE RowNum = @CursorRowNum;을 수행하는 것은 비효율적입니다. SELECT 한 번으로 필요한 모든 데이터를 가져와 처리하거나, APPLY 연산자를 사용하여 외부 쿼리의 결과에 따라 함수나 서브쿼리를 실행하는 방식을 고려할 수 있습니다.
+   * 현재 템플릿에서는 WHILE 루프를 유지했지만, 성능 개선을 위해서는 이 부분을 가장 먼저 검토해야 합니다.
+5. 트랜잭션 처리 강화
+ * COMMIT TRANSACTION 또는 ROLLBACK TRANSACTION 전에 IF XACT_STATE() <> 0을 통해 현재 트랜잭션이 유효한 상태인지 확인하는 것은 좋은 습관입니다.
+ * CATCH 블록에서 ERROR_MESSAGE(), ERROR_SEVERITY(), ERROR_STATE()를 명확히 가져와서 RAISERROR로 다시 발생시키거나 오류 로깅을 수행할 수 있도록 했습니다. 이는 문제 진단에 큰 도움이 됩니다.
+6. 임시 테이블 (#TargetList) 관리
+ * IF OBJECT_ID('tempdb..#TargetList') IS NOT NULL DROP TABLE #TargetList; 구문은 프로시저 시작 시와 종료 시에 모두 사용하는 것이 좋습니다. 시작 시에 두는 이유는 이전 실행에서 비정상적으로 종료되어 임시 테이블이 남아있을 경우를 대비합니다.
+ * 만약 #TargetList에 저장되는 데이터의 양이 적고, 루프가 매우 짧게 돈다면 **테이블 변수 (DECLARE @TargetList TABLE (...))**를 사용하는 것을 고려할 수 있습니다. 테이블 변수는 트랜잭션에 포함되지 않고 세션이 종료되면 자동 삭제되므로 DROP TABLE이 필요 없지만, 통계 정보가 없어 대량 데이터 처리에는 불리합니다.
+7. 로깅 및 오류 메시지
+ * 단순 PRINT 대신 오류 로깅 테이블을 사용하는 것을 강력히 권장합니다. 프로시저 실행 중 발생한 오류나 중요한 이벤트들을 데이터베이스에 기록함으로써, 운영 중 발생한 문제들을 추적하고 분석할 수 있습니다.
+ * RAISERROR는 단순히 PRINT하는 것보다 더 강력한 오류 처리 메커니즘을 제공합니다. @ErrorSeverity를 16 이상으로 설정하면 클라이언트 애플리케이션에서 이를 오류로 인식하고 처리할 수 있습니다.
+이 개선된 템플릿은 SQL Server 프로시저의 견고성과 성능을 향상시키는 데 중점을 둡니다. 특히 루프 처리 부분은 데이터 처리량에 따라 성능에 가장 큰 영향을 미치므로, 실제 비즈니스 로직에 맞춰 Set-based 방식으로 변경하는 것을 최우선으로 고려하시길 바랍니다.
+
+
+----------------
+
 CREATE PROCEDURE dbo.YourProcedureName
     @InputParam1 INT = 0,
     @InputParam2 NVARCHAR(100),
