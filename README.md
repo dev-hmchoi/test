@@ -1,4 +1,229 @@
+CREATE PROCEDURE dbo.YourProcedureName
+    @InputParam1 INT = 0,
+    @InputParam2 NVARCHAR(100),
+    @OutputParam1 INT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
 
+    -- ▒▒ 변수 선언 ▒▒
+    DECLARE @LocalVar1 INT = 0;
+    DECLARE @LocalVar2 INT = 100;
+    DECLARE @SumResult INT;
+    DECLARE @ErrorCode INT = 0;
+    DECLARE @ErrorMessage NVARCHAR(4000);
+    DECLARE @IsSuccess BIT = 1;
+
+    DECLARE @CursorRowNum INT = 1;         -- 커서용 순번 (ROW_NUMBER 기준)
+    DECLARE @CursorValue NVARCHAR(100);
+    DECLARE @TotalRowCount INT = 0;
+
+    -- ▒▒ Step 1. 임시 테이블 생성 (ROW_NUMBER 포함) ▒▒
+    IF OBJECT_ID('tempdb..#TargetList') IS NOT NULL DROP TABLE #TargetList;
+
+    SELECT 
+        ROW_NUMBER() OVER (ORDER BY SomeColumn) AS RowNum,
+        SomeColumn
+    INTO #TargetList
+    FROM YourTable
+    WHERE SomeCondition = @InputParam2;
+
+    -- ▒▒ Step 2. 총 건수 계산 ▒▒
+    SELECT @TotalRowCount = COUNT(*) FROM #TargetList;
+
+    IF @TotalRowCount = 0
+    BEGIN
+        PRINT '처리할 데이터가 없습니다.';
+        SET @OutputParam1 = 0;
+        RETURN 0;
+    END
+
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        SET @LocalVar1 = @InputParam1 * 10;
+        SET @SumResult = @LocalVar1 + @LocalVar2;
+
+        -- ▒▒ Step 3. 루프 처리 (ROW_NUMBER 기반) ▒▒
+        WHILE @CursorRowNum <= @TotalRowCount
+        BEGIN
+            SELECT @CursorValue = SomeColumn
+            FROM #TargetList
+            WHERE RowNum = @CursorRowNum;
+
+            IF @CursorValue IS NULL
+            BEGIN
+                PRINT 'NULL 데이터 발견. 중단합니다.';
+                SET @IsSuccess = 0;
+                BREAK;
+            END
+
+            -- ★ 서브 프로시저 호출 (예시) ★
+            EXEC dbo.YourSubProcedure
+                @Param1 = @CursorValue,
+                @Param2 = @InputParam1;
+
+            PRINT '진행률: ' + CAST(@CursorRowNum AS NVARCHAR) + ' / ' + CAST(@TotalRowCount AS NVARCHAR);
+
+            SET @CursorRowNum += 1;
+
+            IF @CursorRowNum > 100000
+            BEGIN
+                RAISERROR('루프 횟수가 비정상적으로 많습니다. 중단합니다.', 16, 1);
+                SET @IsSuccess = 0;
+                BREAK;
+            END
+        END
+
+        -- ▒▒ Step 4. 성공 여부에 따른 트랜잭션 처리 ▒▒
+        IF @IsSuccess = 1
+        BEGIN
+            COMMIT TRANSACTION;
+            SET @OutputParam1 = @SumResult;
+        END
+        ELSE
+        BEGIN
+            IF XACT_STATE() <> 0
+                ROLLBACK TRANSACTION;
+            SET @OutputParam1 = -1;
+            RETURN -1;
+        END
+    END TRY
+    BEGIN CATCH
+        IF XACT_STATE() <> 0
+            ROLLBACK TRANSACTION;
+
+        SET @ErrorCode = ERROR_NUMBER();
+        SET @ErrorMessage = ERROR_MESSAGE();
+        PRINT '에러 발생: ' + CAST(@ErrorCode AS NVARCHAR) + ' - ' + @ErrorMessage;
+
+        SET @OutputParam1 = -1;
+        RETURN -1;
+    END CATCH
+
+    -- ▒▒ Step 5. 임시 테이블 정리 ▒▒
+    IF OBJECT_ID('tempdb..#TargetList') IS NOT NULL
+        DROP TABLE #TargetList;
+
+    -- ▒▒ Step 6. 리턴 코드 ▒▒
+    RETURN 0;
+END;
+GO
+
+
+CREATE PROCEDURE dbo.YourProcedureName
+    @InputParam1 INT = 0,
+    @InputParam2 NVARCHAR(100),
+    @OutputParam1 INT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    -- ▒▒ 변수 선언 ▒▒
+    DECLARE @LocalVar1 INT = 0;
+    DECLARE @LocalVar2 INT = 100;
+    DECLARE @SumResult INT;
+    DECLARE @ErrorCode INT = 0;
+    DECLARE @ErrorMessage NVARCHAR(4000);
+    DECLARE @IsSuccess BIT = 1;
+
+    DECLARE @CursorRowNum INT = 1;         -- 커서용 순번 (ROW_NUMBER 기준)
+    DECLARE @CursorValue NVARCHAR(100);
+    DECLARE @TotalRowCount INT = 0;
+
+    -- ▒▒ Step 1. 임시 테이블 생성 (ROW_NUMBER 포함) ▒▒
+    IF OBJECT_ID('tempdb..#TargetList') IS NOT NULL DROP TABLE #TargetList;
+
+    SELECT 
+        ROW_NUMBER() OVER (ORDER BY SomeColumn) AS RowNum,
+        SomeColumn
+    INTO #TargetList
+    FROM YourTable
+    WHERE SomeCondition = @InputParam2;
+
+    -- ▒▒ Step 2. 총 건수 계산 ▒▒
+    SELECT @TotalRowCount = COUNT(*) FROM #TargetList;
+
+    IF @TotalRowCount = 0
+    BEGIN
+        PRINT '처리할 데이터가 없습니다.';
+        SET @OutputParam1 = 0;
+        RETURN 0;
+    END
+
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        SET @LocalVar1 = @InputParam1 * 10;
+        SET @SumResult = @LocalVar1 + @LocalVar2;
+
+        -- ▒▒ Step 3. 루프 처리 (ROW_NUMBER 기반) ▒▒
+        WHILE @CursorRowNum <= @TotalRowCount
+        BEGIN
+            SELECT @CursorValue = SomeColumn
+            FROM #TargetList
+            WHERE RowNum = @CursorRowNum;
+
+            IF @CursorValue IS NULL
+            BEGIN
+                PRINT 'NULL 데이터 발견. 중단합니다.';
+                SET @IsSuccess = 0;
+                BREAK;
+            END
+
+            -- ★ 서브 프로시저 호출 (예시) ★
+            EXEC dbo.YourSubProcedure
+                @Param1 = @CursorValue,
+                @Param2 = @InputParam1;
+
+            PRINT '진행률: ' + CAST(@CursorRowNum AS NVARCHAR) + ' / ' + CAST(@TotalRowCount AS NVARCHAR);
+
+            SET @CursorRowNum += 1;
+
+            IF @CursorRowNum > 100000
+            BEGIN
+                RAISERROR('루프 횟수가 비정상적으로 많습니다. 중단합니다.', 16, 1);
+                SET @IsSuccess = 0;
+                BREAK;
+            END
+        END
+
+        -- ▒▒ Step 4. 성공 여부에 따른 트랜잭션 처리 ▒▒
+        IF @IsSuccess = 1
+        BEGIN
+            COMMIT TRANSACTION;
+            SET @OutputParam1 = @SumResult;
+        END
+        ELSE
+        BEGIN
+            IF XACT_STATE() <> 0
+                ROLLBACK TRANSACTION;
+            SET @OutputParam1 = -1;
+            RETURN -1;
+        END
+    END TRY
+    BEGIN CATCH
+        IF XACT_STATE() <> 0
+            ROLLBACK TRANSACTION;
+
+        SET @ErrorCode = ERROR_NUMBER();
+        SET @ErrorMessage = ERROR_MESSAGE();
+        PRINT '에러 발생: ' + CAST(@ErrorCode AS NVARCHAR) + ' - ' + @ErrorMessage;
+
+        SET @OutputParam1 = -1;
+        RETURN -1;
+    END CATCH
+
+    -- ▒▒ Step 5. 임시 테이블 정리 ▒▒
+    IF OBJECT_ID('tempdb..#TargetList') IS NOT NULL
+        DROP TABLE #TargetList;
+
+    -- ▒▒ Step 6. 리턴 코드 ▒▒
+    RETURN 0;
+END;
+GO
+
+-------------------
 BEGIN TRY
     BEGIN TRAN;
 
