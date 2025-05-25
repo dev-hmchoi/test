@@ -1,3 +1,215 @@
+
+★★★UDATE & INSERT & DELETE 템플릿
+
+CREATE PROCEDURE <Procedure_Name, sysname, ProcedureName> 
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	BEGIN TRY
+		BEGIN TRAN;
+
+		print 'STEP 1'
+		/* ■ STEP 1. 마스터 테이블 처리
+		-- 0. #t2501 존재 여부 확인
+		IF NOT EXISTS (SELECT 1 FROM #t2501)
+		BEGIN
+			ROLLBACK;
+			THROW 50001, '#t2501 실패 - 아카이브할 데이터가 존재하지 않습니다.', 1;
+			--  or 로깅 표시 후 정상 종료
+			/* 로깅
+			PRINT '경고: #t2501에 아카이브할 데이터가 존재하지 않습니다.';
+			-- 또는 로깅 테이블에 기록
+			INSERT INTO error_log (error_code, message, created_at) VALUES ('W001', 't2501 insert 이후 데이터 없음', GETDATE());
+			RETURN 0; -- 정상 종료
+			*/ -- end 로깅
+		END
+
+		-- 1. t2501HS UPDATE
+		UPDATE t2501HS -- pk 제외
+		SET col1 = tmp.col1,
+			col2 = tmp.col2
+		FROM t2501HS t
+		INNER JOIN #t2501 tmp ON t.pk = tmp.pk;
+
+		IF @@ROWCOUNT = 0 -- 업데이트 된것이 없으면
+		BEGIN
+			-- 1.1 t2501HS INSERT
+			INSERT INTO t2501HS (pk1, pk2, col1, col2)
+			SELECT S.pk1, S.pk2, S.col1, S.col2
+			FROM #t2501 AS S
+			-- LEFT JOIN t2501HS AS T ON S.pk1 = T.pk1 AND S.pk2 = T.pk2
+			-- WHERE T.pk1 IS NULL;
+
+			-- 1.2 t2501HS insert 재확인
+			IF NOT EXISTS (SELECT 1 FROM t2501HS WHERE pk = @pk)
+			BEGIN
+				ROLLBACK;
+				THROW 50001, 't2501HS INSERT 실패 - 데이터가 정상적으로 INSERT되지 않았습니다.', 1;
+			END
+		END
+		*/ -- end STEP 1. 마스터 테이블 처리
+
+		print 'STEP 2'
+		/* ■ STEP 2. 자식테이블 아카이브 처리
+		-- 2. t2502HS UPDATE <-- t2501HS가 존재
+		IF EXISTS (SELECT 1 FROM #t2502)
+		BEGIN
+			-- #t2502 총10개, update->3, insert->7를 고려
+
+			-- 2.1. UPDATE: 복합키 조건으로 대상 행만 수정
+			UPDATE T
+			SET T.col1 = S.col1,
+				T.col2 = S.col2
+			FROM t2502HS AS T
+			INNER JOIN #t2502 AS S ON T.pk1 = S.pk1 AND T.pk2 = S.pk2;
+
+			-- 2.2 INSERT: 조인이 되지 않은 행만 선별하여 INSERT
+			INSERT INTO t2502HS (pk1, pk2, col1, col2)
+			SELECT S.pk1, S.pk2, S.col1, S.col2
+			FROM #t2502 AS S
+			LEFT JOIN t2502HS AS T ON S.pk1 = T.pk1 AND S.pk2 = T.pk2
+			WHERE T.pk1 IS NULL;
+
+			-- 2.3 검증: insert 이후에도 존재하지 않으면 롤백 및 오류 발생
+			IF EXISTS (
+				SELECT 1
+				FROM #t2502 AS S
+				LEFT JOIN t2502HS AS T
+					ON S.pk1 = T.pk1 AND S.pk2 = T.pk2
+				WHERE T.pk1 IS NULL
+			)
+			BEGIN
+				ROLLBACK;
+				THROW 50001, 't2502 INSERT 실패 - 일부 데이터가 존재하지 않습니다.', 1;
+			END
+		END
+		-- NOT EXISTS #t2502 -> 데이타가 없을 수도 있음 -> pass
+
+
+		-- 3. t2505HS UPDATE
+		IF EXISTS (SELECT 1 FROM #t2505)
+		BEGIN
+			-- ...
+		END
+		-- end 3. t2505HS UPDATE
+
+		*/ -- end STEP 2. 자식테이블 아카이브 처리
+
+		print 'STEP 3'
+		/* ■ STEP 3. ★리모트 서버에서 DELETE
+		/* -- 3. 리모트 t2501 삭제
+		-- @sqlcmd
+		BEGIN TRY
+			BEGIN TRAN;
+
+			-- 3.1 DELETE 실행
+			DELETE T
+			FROM t2501 AS T
+			WHERE T.pk1 = @pk1 AND T.pk2 = @pk2;
+
+			-- 3.2 삭제 검증: 삭제되었는지 확인 (존재하면 삭제 실패)
+			IF EXISTS (
+				SELECT 1
+				FROM t2502 AS T
+				WHERE T.pk1 = @pk1 AND T.pk2 = @pk2;
+			)
+			BEGIN
+				ROLLBACK;
+				THROW 50001, '삭제 실패 - 일부 행이 여전히 존재합니다.', 1;
+			END
+    
+			COMMIT;
+		END TRY
+		BEGIN CATCH
+			ROLLBACK;
+			THROW;
+		END CATCH
+		-- @sqlcmd
+
+		EXEC @sqlcmd AT REMOTE
+		*/ -- end 3. 리모트 t2501 삭제
+
+
+		/* -- 4. 리모트 t2502 삭제
+		-- @sqlcmd
+		BEGIN TRY
+			BEGIN TRAN;
+
+			-- 4.1 DELETE 실행
+			DELETE T
+			FROM t2502 AS T
+			INNER JOIN t2501 S ON T.aaa = S.aaa AND T.bbb = S.bbb
+			WHERE S.pk1 = @pk1 AND S.pk2 = @pk2;
+
+			-- 4.2 삭제 검증: 삭제되었는지 확인 (존재하면 삭제 실패)
+			IF EXISTS (
+				SELECT 1
+				FROM t2502 AS T
+				INNER JOIN t2501 S ON T.aaa = S.aaa AND T.bbb = S.bbb
+				WHERE S.pk1 = @pk1 AND S.pk2 = @pk2;
+			)
+			BEGIN
+				ROLLBACK;
+				THROW 50001, '삭제 실패 - 일부 행이 여전히 존재합니다.', 1;
+			END
+    
+			COMMIT;
+		END TRY
+		BEGIN CATCH
+			ROLLBACK;
+			THROW;
+		END CATCH
+		-- @sqlcmd
+
+		EXEC @sqlcmd AT REMOTE
+		*/ -- end 4. 리모트 t2502 삭제
+
+		*/ -- ■ STEP 3. ★리모트 서버에서 DELETE
+
+		print 'STEP 4. 아카이브 종료'
+
+		COMMIT;
+	END TRY
+	BEGIN CATCH
+		IF @@TRANCOUNT > 0 ROLLBACK;
+		PRINT ERROR_MESSAGE();
+	END CATCH
+END
+GO
+
+
+
+/* Oracle
+BEGIN
+    -- 트랜잭션은 BEGIN ~ EXCEPTION 블록 내에서 처리됨
+    -- 필요시 SAVEPOINT 지정 가능
+
+    -- 3.1 DELETE 실행
+    DELETE FROM t2501
+    WHERE pk1 = :pk1 AND pk2 = :pk2;
+
+    -- 3.2 삭제 검증: 삭제되었는지 확인 (존재하면 삭제 실패)
+    IF EXISTS (
+        SELECT 1
+        FROM t2502
+        WHERE pk1 = :pk1 AND pk2 = :pk2
+    ) THEN
+        ROLLBACK;
+        RAISE_APPLICATION_ERROR(-20001, '삭제 실패 - 일부 행이 여전히 존재합니다.');
+    END IF;
+
+    COMMIT;
+
+EXCEPTION
+    WHEN OTHERS THEN
+        ROLLBACK;
+        RAISE;
+END;
+*/
+
+----------------------------------------------------------------------------------------------------------------------------------------------
+
 -- ================================================
 -- Template generated from Template Explorer using:
 -- Create Procedure (New Menu).SQL
