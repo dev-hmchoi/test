@@ -207,6 +207,134 @@ EXCEPTION
         RAISE;
 END;
 */
+----------------------------------------------------------------------------------------------------------------------------------------------
+★★★프로시져 템플릿
+
+CREATE PROCEDURE dbo.YourProcedureName
+    @InputParam1 INT = 0,
+    @InputParam2 NVARCHAR(100),
+    @OutputParam1 INT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    -- ▒▒ 변수 선언 ▒▒
+    DECLARE @LocalVar1 INT = 0;
+    DECLARE @LocalVar2 INT = 100;
+    DECLARE @SumResult INT;
+    DECLARE @ErrorCode INT = 0;
+    DECLARE @ErrorMessage NVARCHAR(4000);
+    DECLARE @CursorOpened BIT = 0;
+    DECLARE @IsSuccess BIT = 1;
+
+    DECLARE @CursorValue NVARCHAR(100);
+    DECLARE @RowCount INT = 0;         -- 커서 루프 카운터
+    DECLARE @TotalRowCount INT = 0;    -- 총 건수
+
+    -- ▒▒ Step 1. 임시 테이블 생성 ▒▒
+    IF OBJECT_ID('tempdb..#TargetList') IS NOT NULL DROP TABLE #TargetList;
+
+    SELECT 
+        SomeColumn  -- 커서 대상 컬럼
+    INTO #TargetList
+    FROM YourTable
+    WHERE SomeCondition = @InputParam2
+    ORDER BY SomeColumn;
+
+    -- ▒▒ Step 2. 총 건수 계산 ▒▒
+    SELECT @TotalRowCount = COUNT(*) FROM #TargetList;
+
+    IF @TotalRowCount = 0
+    BEGIN
+        PRINT '처리할 데이터가 없습니다.';
+        SET @OutputParam1 = 0;
+        RETURN 0;
+    END
+
+    -- ▒▒ Step 3. 커서 정의 ▒▒
+    DECLARE SampleCursor CURSOR LOCAL FAST_FORWARD FOR
+        SELECT SomeColumn FROM #TargetList;
+
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        -- 변수 초기화
+        SET @LocalVar1 = @InputParam1 * 10;
+        SET @SumResult = @LocalVar1 + @LocalVar2;
+
+        OPEN SampleCursor;
+        SET @CursorOpened = 1;
+
+        FETCH NEXT FROM SampleCursor INTO @CursorValue;
+
+        WHILE @RowCount < @TotalRowCount
+        BEGIN
+            IF @@FETCH_STATUS <> 0
+            BEGIN
+                PRINT '커서 FETCH 실패. 중단합니다.';
+                SET @IsSuccess = 0;
+                BREAK;
+            END
+
+            SET @RowCount += 1;
+
+            -- ★ 서브 프로시저 호출 (예시) ★
+            EXEC dbo.YourSubProcedure
+                @Param1 = @CursorValue,
+                @Param2 = @InputParam1;
+
+            PRINT '진행률: ' + CAST(@RowCount AS NVARCHAR) + ' / ' + CAST(@TotalRowCount AS NVARCHAR);
+
+            FETCH NEXT FROM SampleCursor INTO @CursorValue;
+
+            IF @RowCount > 100000
+            BEGIN
+                RAISERROR('루프 횟수가 비정상적으로 많습니다. 중단합니다.', 16, 1);
+                SET @IsSuccess = 0;
+                BREAK;
+            END
+        END
+
+        IF @IsSuccess = 1
+        BEGIN
+            COMMIT TRANSACTION;
+            SET @OutputParam1 = @SumResult;
+        END
+        ELSE
+        BEGIN
+            IF XACT_STATE() <> 0
+                ROLLBACK TRANSACTION;
+            SET @OutputParam1 = -1;
+            RETURN -1;
+        END
+    END TRY
+    BEGIN CATCH
+        IF XACT_STATE() <> 0
+            ROLLBACK TRANSACTION;
+
+        SET @ErrorCode = ERROR_NUMBER();
+        SET @ErrorMessage = ERROR_MESSAGE();
+        PRINT '에러 발생: ' + CAST(@ErrorCode AS NVARCHAR) + ' - ' + @ErrorMessage;
+
+        SET @OutputParam1 = -1;
+        RETURN -1;
+    END CATCH
+
+    -- ▒▒ Step 4. 커서 정리 ▒▒
+    IF @CursorOpened = 1 AND CURSOR_STATUS('local', 'SampleCursor') >= -1
+    BEGIN
+        CLOSE SampleCursor;
+        DEALLOCATE SampleCursor;
+    END
+
+    -- ▒▒ Step 5. 임시 테이블 정리 ▒▒
+    IF OBJECT_ID('tempdb..#TargetList') IS NOT NULL
+        DROP TABLE #TargetList;
+
+    -- ▒▒ Step 6. 리턴 코드 ▒▒
+    RETURN 0;
+END;
+GO
 
 ----------------------------------------------------------------------------------------------------------------------------------------------
 
