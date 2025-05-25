@@ -1,3 +1,149 @@
+-- ================================================
+-- Template generated from Template Explorer using:
+-- Create Procedure (New Menu).SQL
+--
+-- Use the Specify Values for Template Parameters 
+-- command (Ctrl-Shift-M) to fill in the parameter 
+-- values below.
+--
+-- This block of comments will not be included in
+-- the definition of the procedure.
+-- ================================================
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+-- =============================================
+-- Author:		<Author,,Name>
+-- Create date: <Create Date,,>
+-- Description:	<Description,,>
+-- =============================================
+CREATE PROCEDURE <Procedure_Name, sysname, ProcedureName> 
+	-- Add the parameters for the stored procedure here
+	<@Param1, sysname, @p1> <Datatype_For_Param1, , int> = <Default_Value_For_Param1, , 0>, 
+	<@Param2, sysname, @p2> <Datatype_For_Param2, , int> = <Default_Value_For_Param2, , 0>
+AS
+BEGIN
+
+	-- SET NOCOUNT ON added to prevent extra result sets from
+	declare aaa int;
+	-- interfering with SELECT statements.
+
+
+	SET NOCOUNT ON;
+
+
+
+BEGIN TRY
+    BEGIN TRAN;
+
+	-- /* STEP 1. 마스터 테이블 처리
+	-- 0. #t2501 존재 여부 확인
+	IF NOT EXISTS (SELECT 1 FROM #t2501)
+    BEGIN
+        ROLLBACK;
+        THROW 50001, '#t2501 실패 - 아카이브할 데이터가 존재하지 않습니다.', 1;
+		--  or 로깅 표시 후 정상 종료
+		/*
+		PRINT '경고: #t2501에 아카이브할 데이터가 존재하지 않습니다.';
+		-- 또는 로깅 테이블에 기록
+		INSERT INTO error_log (error_code, message, created_at) VALUES ('W001', 't2501 insert 이후 데이터 없음', GETDATE());
+		RETURN 0;
+		*/
+    END
+
+
+    -- 1. t2501HS UPDATE
+    UPDATE t2501HS -- pk 제외
+    SET col1 = tmp.col1,
+        col2 = tmp.col2
+    FROM t2501HS t
+    INNER JOIN #t2501 tmp ON t.pk = tmp.pk;
+
+    IF @@ROWCOUNT = 0 -- 업데이트 된것이 없으면
+    BEGIN
+        -- 1.1 t2501HS INSERT
+        INSERT INTO t2501HS (pk, col1) VALUES (@pk, '값');
+
+        -- 1.2 t2501HS insert 재확인
+        IF NOT EXISTS (SELECT 1 FROM t2501HS WHERE pk = @pk)
+        BEGIN
+            ROLLBACK;
+            THROW 50001, 't2501HS INSERT 실패 - 데이터가 정상적으로 INSERT되지 않았습니다.', 1;
+        END
+    END
+	-- end STEP 1. 마스터 테이블 처리 */
+
+	-- /* STEP 2. 자식테이블 아카이브 처리
+    -- 2. t2501HS가 존재 -> t2502HS UPDATE
+	IF EXISTS (SELECT 1 FROM #t2502)
+	BEGIN
+		-- #t2502 총10개, update->3, insert->7를 고려
+
+		-- 1. UPDATE: 복합키 조건으로 대상 행만 수정
+		UPDATE T
+		SET T.col1 = S.col1,
+			T.col2 = S.col2
+		FROM t2502HS AS T
+		INNER JOIN #t2502 AS S ON T.pk1 = S.pk1 AND T.pk2 = S.pk2;
+
+		-- 2. INSERT: 조인이 되지 않은 행만 선별하여 INSERT
+		INSERT INTO t2502HS (pk1, pk2, col1, col2)
+		SELECT S.pk1, S.pk2, S.col1, S.col2
+		FROM #t2502 AS S
+		LEFT JOIN t2502HS AS T ON S.pk1 = T.pk1 AND S.pk2 = T.pk2
+		WHERE T.pk1 IS NULL;
+
+
+		-- 3. 검증: insert 이후에도 존재하지 않으면 롤백 및 오류 발생
+		IF EXISTS (
+			SELECT 1
+			FROM #t2502 AS S
+			LEFT JOIN t2502HS AS T
+				ON S.pk1 = T.pk1 AND S.pk2 = T.pk2
+			WHERE T.pk1 IS NULL
+		)
+		BEGIN
+			ROLLBACK;
+			THROW 50001, 't2502 INSERT 실패 - 일부 데이터가 존재하지 않습니다.', 1;
+		END
+	END
+	-- NOT EXISTS #t2502 -> 데이타가 없을 수도 있음 -> pass
+
+
+    -- 2. t2501HS가 존재 -> t2505HS UPDATE
+	IF EXISTS (SELECT 1 FROM #t2505)
+	BEGIN
+	END
+	-- 2. t2501HS가 존재 -> t2505HS UPDATE
+
+	-- end STEP 2. 자식테이블 아카이브 처리 */
+
+
+
+
+
+
+
+    COMMIT;
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK;
+    PRINT ERROR_MESSAGE();
+END CATCH
+
+
+
+
+
+
+END
+GO
+
+
+
+
+-------------------------------------
 네, 제공해주신 SQL Server 프로시저 템플릿을 보다 안정적이고 효율적으로 개선하는 방법을 제안해 드립니다. 현재 코드의 좋은 부분은 유지하되, 성능을 저해할 수 있는 요소들을 제거하고, 더 나은 예외 처리 및 로깅 방식을 추가했습니다.
 개선된 SQL Server 프로시저 템플릿
 아래는 개선된 프로시저 코드입니다. 각 개선 사항에 대한 자세한 설명은 코드 다음에 이어집니다.
