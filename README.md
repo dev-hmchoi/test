@@ -1,3 +1,26 @@
+BEGIN TRY
+    IF @isValid = 0
+    BEGIN
+        RETURN -1; -- 유효하지 않은 입력 등 비예외적 로직 실패
+    END
+
+    -- 실행 중 오류 발생
+    INSERT INTO TableA (...) VALUES (...);
+    IF @@ROWCOUNT = 0
+        THROW 50001, '삽입 실패', 1;
+
+    RETURN 0; -- 성공
+END TRY
+
+BEGIN CATCH
+    -- 오류 로그 기록
+    INSERT INTO ErrorLog (...) VALUES (...);
+
+    -- 예외 전달
+    THROW;
+END CATCH
+
+
 CREATE PROCEDURE usp_DoSomething
     @ErrMsg NVARCHAR(4000) OUTPUT
 AS
