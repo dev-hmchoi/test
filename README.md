@@ -1,3 +1,21 @@
+CREATE PROCEDURE usp_DoSomething
+    @ErrMsg NVARCHAR(4000) OUTPUT
+AS
+BEGIN TRY
+    -- 정상 처리
+    SET @ErrMsg = '';
+    RETURN 0;
+END TRY
+BEGIN CATCH
+    -- 로그 저장
+    INSERT INTO ErrorLog (...) VALUES (...);
+
+    -- 오류 메시지 OUT 파라미터로 전달
+    SET @ErrMsg = ERROR_MESSAGE();
+
+    RETURN -1;
+END CATCH
+
 1. 에러처리
 에러일 경우
 커서가 중간에 중단되는 경우, 이미 실행된건은 정상 종료
