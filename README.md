@@ -1,3 +1,217 @@
+
+USE [test]
+GO
+/****** Object:  StoredProcedure [dbo].[usp_ParentProcedure]    Script Date: 2025/06/01 12:46:42 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+-- EXEC usp_ParentProcedure;
+ALTER PROCEDURE [dbo].[usp_ParentProcedure]
+AS
+BEGIN
+
+	DECLARE @result INT = -1
+	DECLARE @ErrMsg NVARCHAR(4000)
+	DECLARE @ErrStep NVARCHAR(4000)
+	DECLARE @ErrCode NVARCHAR(4000)
+
+	DECLARE @ErrMsgOut NVARCHAR(4000)
+	DECLARE @ErrStepOut NVARCHAR(4000)
+
+    BEGIN TRY
+        print '1. AAA - Parent'
+
+		/* 자식 프로시저 처리 */
+		SET @ErrStep = '1000'
+		EXEC @result = usp_ChildProcedure
+		 					@ErrMsgOut = @ErrMsg OUTPUT,
+							@ErrStepOut = @ErrStep OUTPUT
+		print 'aaa'
+		print @ErrMsg
+		print @ErrStep
+
+		IF @result <> 0
+		BEGIN
+			RAISERROR('child prodedure ERROR', 16, 1, @ErrCode, @ErrStep)
+		END
+		ELSE
+		BEGIN
+			print 'child prodedure SUCCESS';
+		END
+
+
+		-- SET @ErrStep = '1100'
+		/* 임의 에러 발생 처리 */
+		DECLARE @x INT = 1 / 0
+		-- RAISERROR('RAISERROR Error!!!', 16, 1);
+		-- THROW 50001, 'THROW Error!!!', 1
+
+        print '2. BBB - Parent'
+    END TRY
+    BEGIN CATCH
+		print '3. CCC - Parent - Catch'
+
+		SET @ErrMsg = ERROR_MESSAGE()
+        PRINT 'Final Error: ' + @ErrMsg
+
+		-- INSERT INTO log_table ( err_msg ) VALUE @ErrMsg
+
+		print '4. DDD - Parent - RETURN -1'
+		RETURN -1
+    END CATCH
+
+	print '8. YYY - Parent ETC'
+
+print '9. ZZZ - Parent RETURN 0'
+RETURN 0
+END
+GO
+
+/*
+■ ERROR 처리
+1. EXEC usp_ChildProcedure 형태
+-> ★usp_ChildProcedure의 내부에 try-catch가 없는 경우 또는 비정상 에러 발생시, 에러 발생시 다음 구문은 실행 되지 않는다. -> 에러가 바로 catch로 전파됨
+
+2. 프로시저 최종 CATCH문은 RETURN -1로 리턴
+-> 변수에 발생한 에러를 셋한다.
+-> print로 에러를 출력한다.
+-> insert문을 이용해 log테이블에 삽입한다.
+-> raiserror, throw는 사용하지 않는다.(X) -> RETURN -1
+
+3. 프로시저 내의 CATCH문 사용법
+-> raiserror를 사용하여, 에러코드(ErrCode), 에러위치(ErrStep)를 담아 전파한다.
+-> 로그 삽입등 최종 처리는 최종 CATCH문에서 처리
+
+/* 임의 에러 발생(3종류) -> 모두 CATCH로 넘어감 */
+-- DECLARE @x INT = 1 / 0;
+-- RAISERROR('에러 발생!', 16, 1);
+-- THROW 50001, 'message!!!', 1
+
+
+■ TRANSACTION 처리
+
+■ SUB 프로시저 처리
+1. @result에 결과를 받는 경우
+-> EXEC @result = usp_ChildProcedure @ErrMsg = @errMsg OUTPUT
+-> @errMsg OUTPUT으로 자식 프로시져로부터 에러를 받아온다.
+
+
+
+
+
+
+
+XACT_ABORT ON
+RAISERROR(ERROR_MESSAGE(), 16, 1);  -- 상위로 전파
+
+Msg 50000, Level 16, State 1, Procedure usp_ParentProcedure, Line 14
+
+
+-- 실제 삽입된 행 수 확인
+SET @InsertCount = @@ROWCOUNT;
+
+IF @InsertCount = 0
+BEGIN
+    RAISERROR('데이터가 삽입되지 않았습니다. 조건을 확인하세요.', 16, 1);
+END
+
+
+        -- 에러 정보 로깅
+        INSERT INTO ErrorLogs (ErrorMessage, ErrorTime, ProcedureName)
+        VALUES (ERROR_MESSAGE(), GETDATE(), 'usp_ParentProcedure');
+
+DECLARE @ErrorCode INT = ERROR_NUMBER();
+DECLARE @ErrorMessage NVARCHAR(400) = ERROR_MESSAGE();
+DECLARE @ErrorLine INT = ERROR_LINE();
+DECLARE @ErrorProcedure NVARCHAR(128) = ERROR_PROCEDURE();
+
+    DECLARE @ErrorCode INT = ERROR_NUMBER();
+    DECLARE @ErrorMessage NVARCHAR(400) = ERROR_MESSAGE();
+    DECLARE @ErrorLine INT = ERROR_LINE();
+    DECLARE @ErrorProcedure NVARCHAR(128) = ERROR_PROCEDURE();
+    DECLARE @ErrorStep NVARCHAR(100) = '상품 등록 처리';
+    DECLARE @CardPosition NVARCHAR(100) = @CardId;  -- 클라이언트에서 전달받은 카드 위치
+
+
+EXEC usp_LogError @StepCode, @CardId, 'ProductId=' + CAST(@ProductId AS NVARCHAR);
+
+INSERT INTO ErrorCode (ErrorCode, ErrorCategory, ErrorMessage)
+VALUES
+(51000, 'INSERT_ERROR', '데이터 등록에 실패하였습니다. 동일한 값이 이미 존재하거나 필수 값이 누락되었을 수 있습니다.'),
+(51001, 'UPDATE_ERROR', '데이터 변경에 실패하였습니다. 변경 대상이 없거나 시스템 오류가 발생했습니다.'),
+(51002, 'DELETE_ERROR', '데이터 삭제에 실패하였습니다. 이미 삭제되었거나 관련 데이터가 존재할 수 있습니다.'),
+(51003, 'NOT_FOUND', '요청하신 데이터를 찾을 수 없습니다.'),
+(51004, 'VALIDATION_ERROR', '입력한 값이 유효하지 않거나 제약 조건을 위반했습니다.'),
+(51005, 'FOREIGN_KEY_ERROR', '연관된 다른 데이터가 있어 작업을 수행할 수 없습니다.'),
+(51010, 'TRANSACTION_ERROR', '처리 중 문제가 발생하여 작업이 완료되지 않았습니다. 다시 시도하거나 관리자에게 문의하세요.'),
+(51100, 'AUTHORIZATION_ERROR', '해당 작업을 수행할 권한이 없습니다.'),
+(51999, 'UNKNOWN_ERROR', '시스템 오류가 발생하였습니다. 관리자에게 문의하세요.');
+
+
+-- 오류 발생 시 롤백
+IF XACT_STATE() <> 0
+    ROLLBACK TRANSACTION;
+*/
+
+----------------------------
+USE [test]
+GO
+/****** Object:  StoredProcedure [dbo].[usp_ChildProcedure]    Script Date: 2025/06/01 14:04:29 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+-- EXEC usp_ChildProcedure null, null
+ALTER PROCEDURE [dbo].[usp_ChildProcedure]
+    @ErrMsgOut NVARCHAR(4000) OUTPUT  -- 에러 메시지 전달용 OUTPUT 파라미터
+	,@ErrStepOut NVARCHAR(4000) OUTPUT 
+AS
+BEGIN
+
+	SET @ErrMsgOut = NULL -- 위치 중요, 에러 발생전에
+
+    BEGIN TRY
+		BEGIN TRANSACTION;
+		print '1. aaa - Child'
+
+		SET @ErrStepOut = '2000'
+		DECLARE @x INT = 1 / 0
+		-- RAISERROR('RAISERROR Error!!!', 16, 1);
+		-- THROW 50001, 'THROW Error!!!', 1
+
+		COMMIT TRANSACTION;
+		print '2. bbb - Child'
+    END TRY
+    BEGIN CATCH
+		print '3. Catch - Child'
+
+		-- IF XACT_STATE() <> 0
+        IF @@TRANCOUNT > 0
+            ROLLBACK TRANSACTION
+
+		SET @ErrMsgOut = ERROR_MESSAGE()
+        PRINT 'Final Error: ' + @ErrMsgOut
+
+		-- INSERT INTO log_table ( err_msg ) VALUE @ErrMsg
+
+		print '4. DDD - Parent - RETURN -1'
+		RETURN -1
+    END CATCH
+
+	print '8. YYY - Child ETC'
+
+print '9. ZZZ - Child RETURN 0'
+RETURN 0
+END
+
+
+
+
+--------------------------------------------------------------------------------------------------------
+
 BEGIN TRY
     IF @isValid = 0
     BEGIN
