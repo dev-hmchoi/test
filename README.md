@@ -1,7 +1,7 @@
 KKK
 BBBbb
 CCC
-DDA
+DDDB
 
 
 MS SQL Server BCPプロシージャ開発 週次計画および実績表（2025年6月1日～6月30日）					
